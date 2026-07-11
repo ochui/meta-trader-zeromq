@@ -110,23 +110,68 @@ Successful builds create:
 
 ```text
 dist/
-├── mt4-win32/
-│   ├── zmq_bind.dll
-│   ├── libzmq.dll
-│   └── include/
-│       ├── zmq_bind.mqh
-│       └── zmq_native.mqh
-└── mt5-x64/
-    ├── zmq_bind.dll
-    ├── libzmq.dll
-    └── include/
-        ├── zmq_bind.mqh
-        └── zmq_native.mqh
+|-- mt4-win32/
+|   |-- zmq_bind.dll
+|   |-- libzmq.dll
+|   `-- include/
+|       |-- zmq_bind.mqh
+|       |-- zmq_native.mqh
+|       `-- zmq_bind.h
+`-- mt5-x64/
+    |-- zmq_bind.dll
+    |-- libzmq.dll
+    `-- include/
+        |-- zmq_bind.mqh
+        |-- zmq_native.mqh
+        `-- zmq_bind.h
 ```
 
 The DLLs use the Visual C++ runtime. If a clean machine reports a missing runtime
 dependency, install the current Microsoft Visual C++ 2015–2022 Redistributable
 matching the terminal architecture (x86 for MT4, x64 for MT5).
+
+## Continuous integration
+
+Pull requests, pushes to `master`, version tags, and manual workflow runs use
+Windows Server 2022 to build and test both Win32 and x64 from the same matrix.
+Both native CTest suites run, the C-language header smoke target compiles, the
+DLL PE machine fields are checked, and Win32/x64 communication is exercised in
+both directions. The workflow run provides separate `windows-mt4-win32` and
+`windows-mt5-x64` artifacts containing the self-contained package and its
+matching cross-architecture test peer.
+
+Normal CI artifacts are retained for 14 days and can be downloaded from the
+corresponding run in the repository's **Actions** tab. GitHub Actions does not
+install MetaTrader; the MT4 and MT5 examples remain compile-checked locally as
+described in the testing guidance.
+
+## Prebuilt downloads
+
+Tagged GitHub Releases provide an MT4 Win32 package, an MT5 x64 package, a
+headers-only package, and `SHA256SUMS.txt`. Each binary package includes both
+required DLLs, the MQL headers, the native C/C++ header, and this README.
+
+Do not mix architectures: MT4 requires the Win32 package, while 64-bit MT5
+requires the x64 package. A DLL from the other package will not load in the
+terminal.
+
+## Creating a release
+
+1. Update `project(meta_trader_zeromq VERSION ...)` in `CMakeLists.txt`.
+2. Commit and merge the version change.
+3. Create and push a matching version tag:
+
+   ```powershell
+   git tag v2.0.0
+   git push origin v2.0.0
+   ```
+
+4. GitHub Actions rebuilds and tests both architectures, runs the two-way
+   interoperability check, and publishes the release assets and checksums.
+
+The workflow rejects a tag whose numeric version does not match the CMake
+project version. Tags containing a hyphen, such as `v2.1.0-beta.1`, create a
+prerelease; tags such as `v2.1.0` create a normal release.
 
 ## Install
 

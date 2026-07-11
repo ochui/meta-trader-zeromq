@@ -89,6 +89,9 @@ add_custom_command(TARGET zmq_bind POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/include/zmq_bind.mqh"
             "${MT_ZMQ_DIST_DIR}/include/zmq_bind.mqh"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/wrap/windows/zmq_bind.h"
+            "${MT_ZMQ_DIST_DIR}/include/zmq_bind.h"
     COMMENT "Packaging ${MT_ZMQ_PACKAGE_DIR}"
 )
 
