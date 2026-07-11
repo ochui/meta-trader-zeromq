@@ -1,3 +1,0 @@
-In order to build, open a visual studio 2008 command prompt. cd to build, type cmake ..
-
-then, type nmake. 

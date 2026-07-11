@@ -1,0 +1,187 @@
+name: Windows build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.package_name }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: Win32
+            build_dir: build/win32
+            package_name: mt4-win32
+          - architecture: x64
+            build_dir: build/x64
+            package_name: mt5-x64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B "${{ matrix.build_dir }}" `
+            -G "Visual Studio 17 2022" `
+            -A "${{ matrix.architecture }}" `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build "${{ matrix.build_dir }}" --config Release --parallel
+
+      - name: Run native tests
+        shell: pwsh
+        run: |
+          ctest --test-dir "${{ matrix.build_dir }}" `
+            -C Release `
+            --output-on-failure
+
+      - name: Validate and stage package
+        shell: pwsh
+        run: |
+          $packageRoot = "dist/${{ matrix.package_name }}"
+          $requiredPackageFiles = @(
+            'zmq_bind.dll',
+            'libzmq.dll',
+            'include/zmq_bind.mqh',
+            'include/zmq_native.mqh',
+            'include/zmq_bind.h'
+          )
+          foreach ($relative in $requiredPackageFiles) {
+            $path = Join-Path $packageRoot $relative
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing package file: $path"
+            }
+          }
+
+          ./scripts/verify_pe_architecture.ps1 `
+            -Path (Join-Path $packageRoot 'zmq_bind.dll') `
+            -Architecture '${{ matrix.architecture }}'
+          ./scripts/verify_pe_architecture.ps1 `
+            -Path (Join-Path $packageRoot 'libzmq.dll') `
+            -Architecture '${{ matrix.architecture }}'
+
+          $peerRoot = "${{ matrix.build_dir }}/Release"
+          $requiredPeerFiles = @('zmq_cross_arch_peer.exe', 'zmq_bind.dll', 'libzmq.dll')
+          foreach ($file in $requiredPeerFiles) {
+            $path = Join-Path $peerRoot $file
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing peer file: $path"
+            }
+          }
+
+          $stageRoot = "ci-artifacts/${{ matrix.package_name }}"
+          $packageStage = Join-Path $stageRoot 'package'
+          $peerStage = Join-Path $stageRoot 'peer'
+          New-Item -ItemType Directory -Path $packageStage, $peerStage -Force | Out-Null
+          Copy-Item -Path "$packageRoot/*" -Destination $packageStage -Recurse -Force
+          foreach ($file in $requiredPeerFiles) {
+            Copy-Item -LiteralPath (Join-Path $peerRoot $file) -Destination $peerStage
+          }
+
+      - name: Upload architecture artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.package_name }}
+          path: ci-artifacts/${{ matrix.package_name }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  cross-architecture:
+    name: Cross-architecture interoperability
+    runs-on: windows-2022
+    needs: build
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download MT4 Win32 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-mt4-win32
+          path: ci-artifacts/mt4-win32
+
+      - name: Download MT5 x64 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-mt5-x64
+          path: ci-artifacts/mt5-x64
+
+      - name: Run both cross-architecture directions
+        shell: pwsh
+        run: |
+          ./scripts/run_cross_arch_test.ps1 `
+            -Win32PeerDirectory 'ci-artifacts/mt4-win32/peer' `
+            -X64PeerDirectory 'ci-artifacts/mt5-x64/peer'
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-2022
+    needs:
+      - build
+      - cross-architecture
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download MT4 Win32 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-mt4-win32
+          path: ci-artifacts/mt4-win32
+
+      - name: Download MT5 x64 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-mt5-x64
+          path: ci-artifacts/mt5-x64
+
+      - name: Validate version and create release assets
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          ./scripts/package_release.ps1 `
+            -Tag $env:RELEASE_TAG `
+            -Mt4PackageDirectory 'ci-artifacts/mt4-win32/package' `
+            -Mt5PackageDirectory 'ci-artifacts/mt5-x64/package' `
+            -OutputDirectory 'release'
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            release/*.zip
+            release/SHA256SUMS.txt
