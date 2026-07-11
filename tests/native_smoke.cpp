@@ -1,13 +1,16 @@
 #include "zmq_bind.h"
+#include "failure_injection.h"
 
 #include <zmq.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <future>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -29,6 +32,46 @@ void require(const bool condition, const std::string &message) {
     if (!condition) {
         die(message);
     }
+}
+
+void require_no_test_leaks(const std::string &stage) {
+    require(zmqb_test_context_registry_size() == 0, stage + ": stale context handle");
+    require(zmqb_test_socket_registry_size() == 0, stage + ": stale socket handle");
+    require(zmqb_test_live_contexts() == 0, stage + ": native context leak");
+    require(zmqb_test_live_sockets() == 0, stage + ": native socket leak");
+    require(zmqb_test_live_messages() == 0, stage + ": native message leak");
+}
+
+template <typename Function>
+int call_without_escape(Function &&function, const std::string &stage) {
+    try {
+        return function();
+    } catch (...) {
+        die(stage + ": C++ exception escaped the C ABI");
+    }
+}
+
+template <typename Function>
+void expect_int_boundary(Function &&function, const std::string &name) {
+    zmqb_test_fail_once(ZmqTestFailurePoint::export_entry, ZmqTestException::generic);
+    const int result = call_without_escape(std::forward<Function>(function), name);
+    zmqb_test_clear_failure();
+    require(result == -1, name + ": exception boundary did not return -1");
+    require(zmqb_errno() == EFAULT, name + ": exception boundary did not report EFAULT");
+}
+
+template <typename Function>
+void expect_handle_boundary(Function &&function, const std::string &name) {
+    zmqb_test_fail_once(ZmqTestFailurePoint::export_entry, ZmqTestException::generic);
+    zmq_handle_t result = 0;
+    try {
+        result = function();
+    } catch (...) {
+        die(name + ": C++ exception escaped the handle C ABI");
+    }
+    zmqb_test_clear_failure();
+    require(result == 0, name + ": exception boundary did not return 0");
+    require(zmqb_errno() == EFAULT, name + ": exception boundary did not report EFAULT");
 }
 
 void send_text(const zmq_handle_t socket, const std::string &message) {
@@ -431,6 +474,197 @@ void test_context_destroy_forces_zero_linger() {
             "context destroy honored a stale nonzero linger value");
 }
 
+void expect_context_creation_allocation_failure(const ZmqTestFailurePoint point,
+                                                const std::string &name) {
+    zmqb_test_fail_once(point, ZmqTestException::bad_alloc);
+    zmq_handle_t context = 0;
+    try {
+        context = zmqb_context_create(1);
+    } catch (...) {
+        die(name + ": exception escaped context creation");
+    }
+    zmqb_test_clear_failure();
+    require(context == 0, name + ": context creation did not fail");
+    require(zmqb_errno() == ENOMEM, name + ": context creation did not report ENOMEM");
+    require_no_test_leaks(name);
+}
+
+void expect_socket_creation_allocation_failure(const zmq_handle_t context,
+                                               const ZmqTestFailurePoint point,
+                                               const std::string &name) {
+    zmqb_test_fail_once(point, ZmqTestException::bad_alloc);
+    zmq_handle_t socket = 0;
+    try {
+        socket = zmqb_socket_create(context, ZMQ_PAIR);
+    } catch (...) {
+        die(name + ": exception escaped socket creation");
+    }
+    zmqb_test_clear_failure();
+    require(socket == 0, name + ": socket creation did not fail");
+    require(zmqb_errno() == ENOMEM, name + ": socket creation did not report ENOMEM");
+    require(zmqb_test_context_registry_size() == 1,
+            name + ": valid context was unregistered");
+    require(zmqb_test_socket_registry_size() == 0, name + ": stale socket handle");
+    require(zmqb_test_live_contexts() == 1, name + ": valid native context was lost");
+    require(zmqb_test_live_sockets() == 0, name + ": native socket leak");
+
+    const zmq_handle_t probe = zmqb_socket_create(context, ZMQ_PAIR);
+    require(probe != 0, name + ": context was unusable after socket failure");
+    require(zmqb_socket_close(probe) == 0, name + ": probe socket close failed");
+}
+
+void test_allocation_failure_guarantees() {
+    require_no_test_leaks("allocation-test initial state");
+
+    expect_context_creation_allocation_failure(
+        ZmqTestFailurePoint::context_state_allocation, "context state allocation");
+    expect_context_creation_allocation_failure(
+        ZmqTestFailurePoint::context_registry_insertion, "context registry insertion");
+
+    const zmq_handle_t context = zmqb_context_create(1);
+    require(context != 0, "socket allocation test context creation failed");
+    expect_socket_creation_allocation_failure(
+        context, ZmqTestFailurePoint::socket_state_allocation, "socket state allocation");
+    expect_socket_creation_allocation_failure(
+        context, ZmqTestFailurePoint::socket_registry_insertion, "socket registry insertion");
+    expect_socket_creation_allocation_failure(context,
+                                              ZmqTestFailurePoint::context_ownership_insertion,
+                                              "context ownership insertion");
+    require(zmqb_context_destroy(context) == 0, "socket allocation test cleanup failed");
+    require_no_test_leaks("socket allocation cleanup");
+
+    const zmq_handle_t destroy_context = zmqb_context_create(1);
+    const zmq_handle_t destroy_socket = zmqb_socket_create(destroy_context, ZMQ_PAIR);
+    require(destroy_context != 0 && destroy_socket != 0,
+            "context destroy allocation setup failed");
+    zmqb_test_fail_once(ZmqTestFailurePoint::context_destroy_storage,
+                        ZmqTestException::bad_alloc);
+    const int destroy_result = call_without_escape(
+        [&]() { return zmqb_context_destroy(destroy_context); },
+        "context destroy temporary allocation");
+    zmqb_test_clear_failure();
+    require(destroy_result == -1, "context destroy allocation did not fail");
+    require(zmqb_errno() == ENOMEM, "context destroy allocation did not report ENOMEM");
+    require(zmqb_test_context_registry_size() == 1 &&
+                zmqb_test_socket_registry_size() == 1,
+            "context destroy allocation mutated registries");
+    require(zmqb_test_live_contexts() == 1 && zmqb_test_live_sockets() == 1,
+            "context destroy allocation released native resources");
+    require(zmqb_set_option_int(destroy_socket, ZMQ_LINGER, 0) == 0,
+            "socket unusable after context destroy allocation failure");
+    require(zmqb_context_destroy(destroy_context) == 0,
+            "context destroy retry after allocation failure failed");
+    require_no_test_leaks("context destroy allocation cleanup");
+
+    const zmq_handle_t receive_context = zmqb_context_create(1);
+    const zmq_handle_t push = zmqb_socket_create(receive_context, ZMQ_PUSH);
+    const zmq_handle_t pull = zmqb_socket_create(receive_context, ZMQ_PULL);
+    require(receive_context != 0 && push != 0 && pull != 0,
+            "receive allocation setup failed");
+    require(zmqb_bind(push, "inproc://receive-allocation-failure") == 0,
+            "receive allocation bind failed");
+    require(zmqb_connect(pull, "inproc://receive-allocation-failure") == 0,
+            "receive allocation connect failed");
+    send_text(push, "message-that-requires-a-pending-buffer");
+    require(zmqb_poll(pull, ZMQ_POLLIN, 1000) == 1,
+            "receive allocation message did not arrive");
+    unsigned char small[4] = {};
+    zmqb_test_fail_once(ZmqTestFailurePoint::receive_pending_allocation,
+                        ZmqTestException::bad_alloc);
+    const int receive_result = call_without_escape(
+        [&]() { return zmqb_receive(pull, small, sizeof(small), 0); },
+        "receive pending allocation");
+    zmqb_test_clear_failure();
+    require(receive_result == -1, "receive pending allocation did not fail");
+    require(zmqb_errno() == ENOMEM, "receive pending allocation did not report ENOMEM");
+    require(zmqb_test_live_messages() == 0, "receive pending allocation leaked zmq_msg_t");
+    require(zmqb_test_context_registry_size() == 1 &&
+                zmqb_test_socket_registry_size() == 2,
+            "receive pending allocation corrupted registries");
+    send_text(push, "after-failure");
+    require(receive_text(pull) == "after-failure",
+            "socket unusable after receive pending allocation failure");
+    require(zmqb_context_destroy(receive_context) == 0,
+            "receive allocation cleanup failed");
+    require_no_test_leaks("receive allocation cleanup");
+}
+
+void test_exception_error_mapping() {
+    unsigned char text[32] = {};
+    zmqb_test_fail_once(ZmqTestFailurePoint::export_entry, ZmqTestException::bad_alloc);
+    require(call_without_escape([&]() { return zmqb_error_text(0, text, sizeof(text)); },
+                                "bad_alloc mapping") == -1,
+            "bad_alloc boundary did not fail");
+    zmqb_test_clear_failure();
+    require(zmqb_errno() == ENOMEM, "bad_alloc boundary did not report ENOMEM");
+
+    zmqb_test_fail_once(ZmqTestFailurePoint::export_entry, ZmqTestException::length_error);
+    require(call_without_escape([&]() { return zmqb_error_text(0, text, sizeof(text)); },
+                                "length_error mapping") == -1,
+            "length_error boundary did not fail");
+    zmqb_test_clear_failure();
+    require(zmqb_errno() == EMSGSIZE, "length_error boundary did not report EMSGSIZE");
+}
+
+void test_every_export_exception_boundary() {
+    require_no_test_leaks("boundary-test initial state");
+    const zmq_handle_t context = zmqb_context_create(1);
+    const zmq_handle_t socket = zmqb_socket_create(context, ZMQ_PAIR);
+    require(context != 0 && socket != 0, "boundary-test setup failed");
+
+    unsigned char bytes[8] = {'t', 'e', 's', 't'};
+    int integers[1] = {1};
+    double doubles[1] = {1.0};
+    int int_value = 0;
+    int64_t int64_value = 0;
+
+    expect_handle_boundary([&]() { return zmqb_context_create(1); }, "zmqb_context_create");
+    expect_int_boundary([&]() { return zmqb_context_destroy(context); },
+                        "zmqb_context_destroy");
+    expect_handle_boundary([&]() { return zmqb_socket_create(context, ZMQ_PAIR); },
+                           "zmqb_socket_create");
+    expect_int_boundary([&]() { return zmqb_socket_close(socket); }, "zmqb_socket_close");
+    expect_int_boundary([&]() { return zmqb_bind(socket, "inproc://boundary-bind"); },
+                        "zmqb_bind");
+    expect_int_boundary([&]() { return zmqb_connect(socket, "inproc://boundary-connect"); },
+                        "zmqb_connect");
+    expect_int_boundary([&]() { return zmqb_send(socket, bytes, 4, ZMQ_DONTWAIT); },
+                        "zmqb_send");
+    expect_int_boundary(
+        [&]() { return zmqb_send_int_array(socket, integers, 1, ZMQ_DONTWAIT); },
+        "zmqb_send_int_array");
+    expect_int_boundary(
+        [&]() { return zmqb_send_double_array(socket, doubles, 1, ZMQ_DONTWAIT); },
+        "zmqb_send_double_array");
+    expect_int_boundary([&]() { return zmqb_receive(socket, bytes, sizeof(bytes), ZMQ_DONTWAIT); },
+                        "zmqb_receive");
+    expect_int_boundary([&]() { return zmqb_set_option_int(socket, ZMQ_LINGER, 0); },
+                        "zmqb_set_option_int");
+    expect_int_boundary([&]() { return zmqb_set_option_int64(socket, ZMQ_AFFINITY, 0); },
+                        "zmqb_set_option_int64");
+    expect_int_boundary(
+        [&]() { return zmqb_set_option_bytes(socket, ZMQ_ROUTING_ID, bytes, 4); },
+        "zmqb_set_option_bytes");
+    expect_int_boundary([&]() { return zmqb_get_option_int(socket, ZMQ_LINGER, &int_value); },
+                        "zmqb_get_option_int");
+    expect_int_boundary(
+        [&]() { return zmqb_get_option_int64(socket, ZMQ_AFFINITY, &int64_value); },
+        "zmqb_get_option_int64");
+    expect_int_boundary([&]() { return zmqb_poll(socket, ZMQ_POLLIN, 0); }, "zmqb_poll");
+    expect_int_boundary([&]() { return zmqb_errno(); }, "zmqb_errno");
+    expect_int_boundary([&]() { return zmqb_is_would_block(EAGAIN); },
+                        "zmqb_is_would_block");
+    expect_int_boundary([&]() { return zmqb_error_text(0, bytes, sizeof(bytes)); },
+                        "zmqb_error_text");
+    expect_int_boundary([&]() { return zmqb_version_major(); }, "zmqb_version_major");
+    expect_int_boundary([&]() { return zmqb_version_minor(); }, "zmqb_version_minor");
+    expect_int_boundary([&]() { return zmqb_version_patch(); }, "zmqb_version_patch");
+
+    require(zmqb_socket_close(socket) == 0, "boundary-test socket cleanup failed");
+    require(zmqb_context_destroy(context) == 0, "boundary-test context cleanup failed");
+    require_no_test_leaks("boundary-test cleanup");
+}
+
 void test_repeated_shutdown_and_leak_cleanup() {
     for (int i = 0; i < 25; ++i) {
         const zmq_handle_t context = zmqb_context_create(1);
@@ -462,6 +696,9 @@ int main() {
     test_explicit_close_context_destroy_race();
     test_context_destroy_forces_zero_linger();
     test_repeated_shutdown_and_leak_cleanup();
+    test_allocation_failure_guarantees();
+    test_exception_error_mapping();
+    test_every_export_exception_boundary();
     std::cout << "PASS: native wrapper smoke tests\n";
     return EXIT_SUCCESS;
 }
