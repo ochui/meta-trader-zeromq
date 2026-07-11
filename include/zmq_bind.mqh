@@ -148,11 +148,27 @@ int z_send_double_array(ZMQ_HANDLE socket, double &data[], int flags = 0)
 string z_recv(ZMQ_HANDLE socket, int flags = 0)
 {
    uchar bytes[];
-   ArrayResize(bytes, ZMQ_INITIAL_RECEIVE_CAPACITY);
+
+   int initial_size = ArrayResize(bytes, ZMQ_INITIAL_RECEIVE_CAPACITY);
+   if(initial_size < ZMQ_INITIAL_RECEIVE_CAPACITY)
+   {
+      ZMQ_LAST_RECEIVE_SIZE = -1;
+      Print("ZeroMQ receive error: could not allocate the initial receive buffer");
+      return "";
+   }
+
    int received = zmqb_receive(socket, bytes, ArraySize(bytes), flags);
    if(received > ArraySize(bytes))
    {
-      ArrayResize(bytes, received);
+      int required = received;
+      int resized = ArrayResize(bytes, required);
+      if(resized < required || ArraySize(bytes) < required)
+      {
+         ZMQ_LAST_RECEIVE_SIZE = -1;
+         PrintFormat("ZeroMQ receive error: could not resize buffer to %d bytes", required);
+         return "";
+      }
+
       received = zmqb_receive(socket, bytes, ArraySize(bytes), flags);
    }
 
@@ -166,6 +182,16 @@ string z_recv(ZMQ_HANDLE socket, int flags = 0)
    }
    if(received == 0)
       return "";
+
+   if(received > ArraySize(bytes))
+   {
+      ZMQ_LAST_RECEIVE_SIZE = -1;
+      PrintFormat("ZeroMQ receive error: received size %d exceeds buffer size %d",
+                  received,
+                  ArraySize(bytes));
+      return "";
+   }
+
    return CharArrayToString(bytes, 0, received, ZMQ_UTF8_CODEPAGE);
 }
 
