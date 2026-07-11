@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(meta_trader_zeromq VERSION 2.0.0 LANGUAGES C CXX)
+project(meta_trader_zeromq VERSION 2.0.1 LANGUAGES C CXX)
 
 # libzmq 4.3.5 predates CMake 4's policy floor.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "Policy floor for bundled libzmq" FORCE)
@@ -20,6 +20,23 @@ else()
 endif()
 
 include(FetchContent)
+
+# Link the MSVC runtime statically in every configuration. Setting this before
+# libzmq is added initializes its targets with /MT for release-like builds and
+# /MTd for Debug builds.
+set(
+    CMAKE_MSVC_RUNTIME_LIBRARY
+    "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    CACHE STRING "MSVC runtime used by all project targets" FORCE
+)
+
+function(mt_zmq_enforce_static_msvc_runtime target)
+    set_property(
+        TARGET "${target}"
+        PROPERTY MSVC_RUNTIME_LIBRARY
+        "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+endfunction()
 
 # Keep libzmq small and reproducible. These cache entries are consumed by the
 # pinned libzmq 4.3.5 project before FetchContent makes it available.
@@ -46,6 +63,7 @@ FetchContent_Declare(
     DOWNLOAD_EXTRACT_TIMESTAMP FALSE
 )
 FetchContent_MakeAvailable(libzmq)
+mt_zmq_enforce_static_msvc_runtime(libzmq)
 
 # libzmq's MSVC defaults append toolset/configuration/version text to the DLL.
 # MetaTrader deployments intentionally use one stable dependency name.
@@ -62,6 +80,7 @@ add_library(zmq_bind SHARED
     wrap/windows/zmq_bind.h
     "${MT_ZMQ_DEF_FILE}"
 )
+mt_zmq_enforce_static_msvc_runtime(zmq_bind)
 target_compile_features(zmq_bind PRIVATE cxx_std_17)
 target_compile_definitions(zmq_bind PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_definitions(zmq_bind PRIVATE ZMQ_BIND_EXPORTS)
@@ -98,10 +117,12 @@ add_custom_command(TARGET zmq_bind POST_BUILD
 include(CTest)
 if(BUILD_TESTING)
     add_library(zmq_bind_c_header_smoke OBJECT tests/c_header_smoke.c)
+    mt_zmq_enforce_static_msvc_runtime(zmq_bind_c_header_smoke)
     target_compile_features(zmq_bind_c_header_smoke PRIVATE c_std_11)
     target_include_directories(zmq_bind_c_header_smoke PRIVATE wrap/windows)
 
     add_executable(zmq_bind_tests tests/native_smoke.cpp)
+    mt_zmq_enforce_static_msvc_runtime(zmq_bind_tests)
     target_compile_features(zmq_bind_tests PRIVATE cxx_std_17)
     target_include_directories(zmq_bind_tests PRIVATE wrap/windows)
     target_link_libraries(zmq_bind_tests PRIVATE zmq_bind libzmq)
@@ -117,6 +138,7 @@ if(BUILD_TESTING)
     set_tests_properties(zmq_bind_native_smoke PROPERTIES TIMEOUT 30)
 
     add_executable(zmq_cross_arch_peer tests/cross_arch_peer.cpp)
+    mt_zmq_enforce_static_msvc_runtime(zmq_cross_arch_peer)
     target_compile_features(zmq_cross_arch_peer PRIVATE cxx_std_17)
     target_include_directories(zmq_cross_arch_peer PRIVATE wrap/windows)
     target_link_libraries(zmq_cross_arch_peer PRIVATE zmq_bind libzmq)
