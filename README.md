@@ -53,11 +53,11 @@ into MetaTrader.
 Native contexts and sockets remain owned by scoped RAII guards until their
 registry transactions commit. Socket registration updates both the global
 socket registry and context ownership set atomically, rolling back either entry
-if the second insertion fails. After commit, the shared context and socket state
-objects become the RAII owners, providing last-resort cleanup if later C++ stack
-unwinding interrupts the normal close path. Context destruction allocates all
-temporary storage before marking or removing any handle, so preparation failure
-leaves the context and its sockets registered and usable.
+if the second insertion fails. After commit, native resources are released from
+the guards and are cleaned up only by the explicit socket-close and
+context-destroy paths. Context destruction allocates all temporary storage
+before marking or removing any handle, so preparation failure leaves the
+context and its sockets registered and usable.
 
 Received `zmq_msg_t` objects are also scoped by RAII. Message bytes are copied
 into a temporary vector and swapped into retained state only after the complete
@@ -231,12 +231,6 @@ retained-message polling, typed 64-bit options, independent sockets and contexts
 close/shutdown races, stale handles, and repeated cleanup including a
 deliberately unclosed socket. Every blocking regression uses a bounded timeout,
 and CTest enforces a 30-second limit for the suite.
-
-When native tests are enabled, CMake builds a separate `zmq_bind_test.dll` from
-the same wrapper source. Test-only hooks deterministically inject allocation,
-length, and unexpected exceptions at resource and registry boundaries. The
-instrumented DLL and its hooks are not copied into either production package and
-are not listed in the production export definition files.
 
 The build also produces `zmq_cross_arch_peer` in each build's `Release`
 directory. It verifies Win32↔x64 PUB/SUB wire

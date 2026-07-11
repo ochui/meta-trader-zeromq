@@ -94,33 +94,10 @@ add_custom_command(TARGET zmq_bind POST_BUILD
 
 include(CTest)
 if(BUILD_TESTING)
-    add_library(zmq_bind_test SHARED
-        wrap/windows/zmq_bind.cpp
-        wrap/windows/zmq_bind.h
-        tests/failure_injection.h
-    )
-    target_compile_features(zmq_bind_test PRIVATE cxx_std_17)
-    target_compile_definitions(zmq_bind_test PRIVATE
-        WIN32_LEAN_AND_MEAN
-        NOMINMAX
-        ZMQ_BIND_EXPORTS
-        ZMQ_BIND_TESTING
-        ZMQ_BIND_TEST_EXPORTS
-    )
-    target_include_directories(zmq_bind_test PRIVATE wrap/windows tests)
-    target_link_libraries(zmq_bind_test PRIVATE libzmq)
-    set_target_properties(zmq_bind_test PROPERTIES
-        OUTPUT_NAME "zmq_bind_test"
-        PREFIX ""
-    )
-    if(MSVC)
-        target_compile_options(zmq_bind_test PRIVATE /W4 /permissive- /EHsc)
-    endif()
-
     add_executable(zmq_bind_tests tests/native_smoke.cpp)
     target_compile_features(zmq_bind_tests PRIVATE cxx_std_17)
     target_include_directories(zmq_bind_tests PRIVATE wrap/windows)
-    target_link_libraries(zmq_bind_tests PRIVATE zmq_bind_test libzmq)
+    target_link_libraries(zmq_bind_tests PRIVATE zmq_bind libzmq)
     if(MSVC)
         target_compile_options(zmq_bind_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
