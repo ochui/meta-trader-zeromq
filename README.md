@@ -155,12 +155,11 @@ non-blocking receive, empty and long messages, UTF-8, `|` and `=`, message burst
 and repeated cleanup including a deliberately unclosed socket.
 
 The build also produces `zmq_cross_arch_peer` in each build's `Release`
-directory. It is used by maintainers to verify Win32↔x64 PUB/SUB wire
+directory. It verifies Win32↔x64 PUB/SUB wire
 interoperability over TCP in both directions.
 
 Actual MT4/MT5 loading, EA removal, terminal shutdown, and the four cross-version
-combinations require installed terminals. Follow and record
-`tests/MANUAL_TEST_MATRIX.md`; native CTest does not claim to replace those
+combinations require installed terminals; native CTest does not replace those
 terminal checks.
 
 ## Migration from the ZeroMQ 2.0.10 wrapper
@@ -196,7 +195,3 @@ poller pointer.
 - **Configure cannot download libzmq:** restore access to GitHub or provide an
   extracted 4.3.5 tree with
   `-DFETCHCONTENT_SOURCE_DIR_LIBZMQ=C:\path\to\libzmq-4.3.5`.
-
-Old precompiled ZeroMQ 2.0.10 binaries and legacy Wine build artifacts have been
-removed to prevent accidental deployment. GreenYetiMaster and GreenYetiSlave are
-outside this modernization and have not been changed.
