@@ -106,6 +106,15 @@ int z_connect(ZMQ_HANDLE socket, string endpoint)
 
 int z_send_bytes(ZMQ_HANDLE socket, uchar &data[], int length, int flags = 0)
 {
+   int available = ArraySize(data);
+   if(length < 0 || length > available)
+   {
+      PrintFormat("ZeroMQ send error: length %d is outside byte array size %d",
+                  length,
+                  available);
+      return -1;
+   }
+
    int result = zmqb_send(socket, data, length, flags);
    if(result < 0)
       z_error();

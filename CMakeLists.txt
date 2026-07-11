@@ -94,6 +94,10 @@ add_custom_command(TARGET zmq_bind POST_BUILD
 
 include(CTest)
 if(BUILD_TESTING)
+    add_library(zmq_bind_c_header_smoke OBJECT tests/c_header_smoke.c)
+    target_compile_features(zmq_bind_c_header_smoke PRIVATE c_std_11)
+    target_include_directories(zmq_bind_c_header_smoke PRIVATE wrap/windows)
+
     add_executable(zmq_bind_tests tests/native_smoke.cpp)
     target_compile_features(zmq_bind_tests PRIVATE cxx_std_17)
     target_include_directories(zmq_bind_tests PRIVATE wrap/windows)
