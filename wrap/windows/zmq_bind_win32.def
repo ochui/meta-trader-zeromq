@@ -1,0 +1,21 @@
+LIBRARY "zmq_bind"
+EXPORTS
+    zmqb_context_create=_zmqb_context_create@4
+    zmqb_context_destroy=_zmqb_context_destroy@4
+    zmqb_socket_create=_zmqb_socket_create@8
+    zmqb_socket_close=_zmqb_socket_close@4
+    zmqb_bind=_zmqb_bind@8
+    zmqb_connect=_zmqb_connect@8
+    zmqb_send=_zmqb_send@16
+    zmqb_send_int_array=_zmqb_send_int_array@16
+    zmqb_send_double_array=_zmqb_send_double_array@16
+    zmqb_receive=_zmqb_receive@16
+    zmqb_set_option_int=_zmqb_set_option_int@12
+    zmqb_set_option_bytes=_zmqb_set_option_bytes@16
+    zmqb_get_option_int=_zmqb_get_option_int@12
+    zmqb_poll=_zmqb_poll@12
+    zmqb_errno=_zmqb_errno@0
+    zmqb_error_text=_zmqb_error_text@12
+    zmqb_version_major=_zmqb_version_major@0
+    zmqb_version_minor=_zmqb_version_minor@0
+    zmqb_version_patch=_zmqb_version_patch@0

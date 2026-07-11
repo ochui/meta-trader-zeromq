@@ -1,0 +1,25 @@
+# CMake and Visual Studio outputs
+/build/
+/out/
+/dist/
+/CMakeFiles/
+/CMakeCache.txt
+*.sln
+*.vcxproj*
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+
+# MetaTrader compiler outputs and local terminal data
+*.ex4
+*.ex5
+*.log
+
+# Editor and OS files
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

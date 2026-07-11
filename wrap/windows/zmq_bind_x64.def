@@ -1,0 +1,21 @@
+LIBRARY "zmq_bind"
+EXPORTS
+    zmqb_context_create
+    zmqb_context_destroy
+    zmqb_socket_create
+    zmqb_socket_close
+    zmqb_bind
+    zmqb_connect
+    zmqb_send
+    zmqb_send_int_array
+    zmqb_send_double_array
+    zmqb_receive
+    zmqb_set_option_int
+    zmqb_set_option_bytes
+    zmqb_get_option_int
+    zmqb_poll
+    zmqb_errno
+    zmqb_error_text
+    zmqb_version_major
+    zmqb_version_minor
+    zmqb_version_patch

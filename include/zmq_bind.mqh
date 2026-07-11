@@ -1,266 +1,235 @@
+#ifndef META_TRADER_ZMQ_BIND_MQH
+#define META_TRADER_ZMQ_BIND_MQH
+
 #include <zmq_native.mqh>
+
+#define ZMQ_UTF8_CODEPAGE 65001
+#define ZMQ_INITIAL_RECEIVE_CAPACITY 4096
+
 int Z_DEBUG = 0;
+int ZMQ_LAST_RECEIVE_SIZE = -1;
 
-void z_trace(string str) {
- if (Z_DEBUG==1) {
-   Print(str);
- }
-}
-
-//timeout in milliseconds
-int z_poll(int poller,int timeout) {
-  int ret = _zmq_poll(poller,1,timeout);
-  if (ret==-1) 
-     z_error();
-  return(ret);
-}
-int z_new_poll (int socket)  {
-  return(_zmq_new_poll(socket));
+void z_trace(string text)
+{
+   if(Z_DEBUG == 1)
+      Print(text);
 }
 
-/*TODO: how do we actually freee a pointer in memory - i tried it with free(ptr) , and it crashed :(
-void z_free_poller (int poller) {
-  if (poller!=0) 
-    _zmq_free(poller);
-}
-*/
-
-
-//version
-string z_version_string() {
-  int version[3];
-  z_version(version);
-  return(version[0]+"."+version[1]+"."+version[2]);
-}
-void z_version(int&version[]) {
-  z_trace("z_version");
-  int major[1];int minor[1];int patch[1];
-  _zmq_version(major,minor,patch);
-  version[0]=major[0]; version[1] = minor[0]; version[2] = patch[0];
+int z_error()
+{
+   int error_code = zmqb_errno();
+   uchar text[];
+   ArrayResize(text, 512);
+   int length = zmqb_error_text(error_code, text, ArraySize(text));
+   string description = "Unknown ZeroMQ error";
+   if(length >= 0)
+      description = CharArrayToString(text, 0, length, ZMQ_UTF8_CODEPAGE);
+   PrintFormat("ZeroMQ error %d: %s", error_code, description);
+   return error_code;
 }
 
-//messages
-int z_msg_empty() {
- return(z_msg_new(""));
+string z_version_string()
+{
+   return IntegerToString(zmqb_version_major()) + "." +
+          IntegerToString(zmqb_version_minor()) + "." +
+          IntegerToString(zmqb_version_patch());
 }
 
-int z_msg_new (string data) {
-  z_trace("z_msg_new: "+data);
-
-  int msg = _zmsg_new();
-  uchar dataChar[];
-  StringToCharArray(data, dataChar);
-  int ret = _zmq_msg_init_data(msg,dataChar,StringLen(data));
-  if (ret==-1) 
-    z_error();
-  return(msg);
+void z_version(int &version[])
+{
+   ArrayResize(version, 3);
+   version[0] = zmqb_version_major();
+   version[1] = zmqb_version_minor();
+   version[2] = zmqb_version_patch();
 }
 
-string z_msg(int msg) { //TODO: catch error if zmq_msg_data doesnt work out?
-  z_trace("z_msg");
-  return(_ptr2str(_zmq_msg_data(msg)));
+int z_poll_socket(ZMQ_HANDLE socket, int timeout, int events = ZMQ_POLLIN)
+{
+   int result = zmqb_poll(socket, events, timeout);
+   if(result < 0)
+      z_error();
+   return result;
 }
 
-int z_msg_len(int msg) {
-  z_trace("z_msg_size");
-  int ret = _zmq_msg_size(msg); 
-  return(ret);
+// Compatibility aliases: a poller is now just its socket handle; no native
+// poll-item pointer crosses the DLL boundary.
+ZMQ_HANDLE z_new_poll(ZMQ_HANDLE socket)
+{
+   return socket;
 }
 
-int z_msg_close(int msg) {
-  z_trace("z_msg_close");
-  if (msg==0) 
-   return(0);
-  int ret = _zmq_msg_close(msg); 
-  if (ret==-1)
-    z_error();
-  return(ret);
-}
-//sockets
-int z_subscribe (int socket,string val) {
-  return(z_set_sockopt(socket,ZMQ_SUBSCRIBE,val));
-}
-int z_unsubscribe(int socket,string val) {
-  return(z_set_sockopt(socket,ZMQ_UNSUBSCRIBE,val));
+int z_poll(ZMQ_HANDLE poller, int timeout)
+{
+   return z_poll_socket(poller, timeout, ZMQ_POLLIN);
 }
 
-int z_set_sockopt(int socket,int option_name,string option_value) {
-  if (socket==0) {
-    return(0);
-  }
-  uchar optvalChar[];
-  StringToCharArray(option_value, optvalChar);
-  int ret = _zmq_setsockopt(socket, option_name, optvalChar, StringLen(option_value));
-  if (ret==-1)
-    z_error();
-  return(ret);
+ZMQ_HANDLE z_init(int io_threads)
+{
+   ZMQ_HANDLE context = zmqb_context_create(io_threads);
+   if(context == 0)
+      z_error();
+   return context;
 }
 
-  
-int z_socket(int scontext,int type) {
- z_trace("z_socket: "+scontext+" "+type);
- int ret = _zmq_socket(scontext,type); 
- if (ret==-1)
-   z_error();
- return(ret);
-}
-/*
-int z_identity(int socket) {
-
-  return(_zmq_get_opt_identity(socket)); 
-  Print("1 is "+size[0]+" 2 is "+size[1]);
-  if (ret!=0)  {
-    z_error();
-    return(0);
-  } 
-  return(size[0]);
-}*/
-
-int z_more(int socket) {
-  if (socket==0) {
-    return(0);
-  }
-  int ret = _zmq_get_opt_more(socket);
-  if (ret==-1)
-    z_error();
-  return(ret);
-}
-  
-int z_close(int socket) {
-  z_trace("z_close");
-  if (socket==0) {
-   return(-1);
-  }
-  int ret = _zmq_close(socket); 
-  if (ret==-1)
-   z_error();
-  return(ret);
-}
-int z_bind (int socket,string endpoint) { //for the servers
-  z_trace("z_bind: "+endpoint); 
-  uchar endpointChar[];
-  StringToCharArray(endpoint, endpointChar);
-  int ret = _zmq_bind(socket, endpointChar); 
-  if (ret==-1)
-   z_error();
-  return(ret);
-}
-int z_connect(int socket,string endpoint) { //for the clients
- z_trace("z_connect: "+endpoint);
-  uchar endpointChar[];  
-  StringToCharArray(endpoint, endpointChar);   
-  int ret = _zmq_connect(socket, endpointChar);  
- if (ret==-1) 
-   z_error();
- return(ret);
-}
- 
-//TODO: z_send_raw
-int z_send_double_array(int socket,double &array[],int flags=0) {
- z_trace("z_send_double_array: "+flags);
- int ret = _zmq_send_double_array(array,ArraySize(array),socket,flags); 
- if (ret==-1)
-   z_error();  
- return(ret);
-}
-int z_send_int_array(int socket,int &array[],int flags=0) {
- z_trace("z_send_int_array: "+flags); 
- int ret = _zmq_send_int_array(array,ArraySize(array),socket,flags); 
- if (ret==-1)
-   z_error();  
- return(ret);
-}
- 
-
-int z_send(int socket,string msg,int flags=0) {
- z_trace("z_send: "+msg+" "+flags); 
- int message = z_msg_new(msg);
- int ret = _zmq_send(socket,message,flags); 
- z_msg_close(message);
- if (ret==-1)
-   z_error();  
- return(ret);
-}
-string z_recv(int socket,int flags=0) {
- z_trace("z_recv: "+" "+flags);
- int message = z_msg_new(""); 
- int ret = _zmq_recv(socket,message,flags);
- string msg = ""; 
- if (ret==-1 && flags!=ZMQ_NOBLOCK){
-   z_error();
- }else
-   msg = z_msg(message);
- z_msg_close(message);
- return(msg);
+ZMQ_HANDLE z_socket(ZMQ_HANDLE context, int type)
+{
+   ZMQ_HANDLE socket = zmqb_socket_create(context, type);
+   if(socket == 0)
+      z_error();
+   return socket;
 }
 
-//contextes
-
-
-int z_init(int io_threads) {
-  z_trace("z_init: "+io_threads);
-  int ret = _zmq_init(io_threads);
-  if (ret==NULL) //TODO: is null equal to zero?
-   z_error();  
-  return(ret);
+int z_bind(ZMQ_HANDLE socket, string endpoint)
+{
+   uchar bytes[];
+   StringToCharArray(endpoint, bytes, 0, -1, ZMQ_UTF8_CODEPAGE);
+   int result = zmqb_bind(socket, bytes);
+   if(result < 0)
+      z_error();
+   return result;
 }
 
-int z_term(int scontext) {
- z_trace("z_term");
- if(scontext==NULL) 
-   return(0);
- int ret = _zmq_term(scontext); 
- if (ret==-1) 
-  z_error();
- return(ret);
+int z_connect(ZMQ_HANDLE socket, string endpoint)
+{
+   uchar bytes[];
+   StringToCharArray(endpoint, bytes, 0, -1, ZMQ_UTF8_CODEPAGE);
+   int result = zmqb_connect(socket, bytes);
+   if(result < 0)
+      z_error();
+   return result;
 }
 
-//errors
-
-//note: smq_error will return invalid messages if you call it by itself - in other words, zmq handles various system errors related
-//to sockets and zmq_errno() will return errno which will return those system errors. I got 'error 11: resource temporarily unavailable' alot
-//before i figured this out.
-int z_error () {
-  int err = _zmq_errno(); 
-  if (err!=0 &&
-      err!=100 && // Address in use (handled internaly
-      err!=128    // Unknow error
-      ) 
-  {
-    Print("ZMQ zmq_error ("+err+"): "+_ptr2str(_zmq_strerror(err)));
-  }
-  return(err);
+int z_send_bytes(ZMQ_HANDLE socket, uchar &data[], int length, int flags = 0)
+{
+   int result = zmqb_send(socket, data, length, flags);
+   if(result < 0)
+      z_error();
+   return result;
 }
 
-#import "kernel32.dll"  
-   int lstrlenA(int);  
-   void RtlMoveMemory(uchar & arr[], int, int);  
-   int LocalFree(int); // May need to be changed depending on how the DLL allocates memory  
-#import 
-
-string _ptr2str(int recvPtr) {
-  // Get the length of the string   
-  int mssgLen = lstrlenA(recvPtr);     
-  // if message length is 0, leave.    
-  if(mssgLen<1){  
-    z_trace("_ptr2str: Warning! Message has zero length.");  
-    return("");  
-  }   
-  //else z_trace("mssgLen: "+mssgLen);      
-  // Create a uchar[] array whose size is the string length (plus null terminator)  
-  uchar stringChar[];  
-  ArrayResize(stringChar, mssgLen+1);  
-     
-  // Use the Win32 API to copy the string from the block returned by the DLL  
-  // into the uchar[] array     
-  RtlMoveMemory(stringChar, recvPtr, mssgLen+1);  
-  // Convert the uchar[] array to a message string  
-  string mssg = CharArrayToString(stringChar);  
-  // Free the string memory returned by the DLL. This step can be removed but, without it,  
-  // there will be a memory leak.  
-  // The correct method for freeing the string *depends on how the DLL allocated the memory*  
-  // The following assumes that the DLL has used LocalAlloc (or an indirect equivalent). If not,  
-  // then the following line may not fix the leak, and may even cause a crash.     
-  //LocalFree(recvPtr); 
-  return mssg; 
+int z_send(ZMQ_HANDLE socket, string message, int flags = 0)
+{
+   uchar bytes[];
+   int with_terminator = StringToCharArray(message, bytes, 0, -1, ZMQ_UTF8_CODEPAGE);
+   int length = with_terminator > 0 ? with_terminator - 1 : 0;
+   return z_send_bytes(socket, bytes, length, flags);
 }
+
+int z_send_int_array(ZMQ_HANDLE socket, int &data[], int flags = 0)
+{
+   int result = zmqb_send_int_array(socket, data, ArraySize(data), flags);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+int z_send_double_array(ZMQ_HANDLE socket, double &data[], int flags = 0)
+{
+   int result = zmqb_send_double_array(socket, data, ArraySize(data), flags);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+string z_recv(ZMQ_HANDLE socket, int flags = 0)
+{
+   uchar bytes[];
+   ArrayResize(bytes, ZMQ_INITIAL_RECEIVE_CAPACITY);
+   int received = zmqb_receive(socket, bytes, ArraySize(bytes), flags);
+   if(received > ArraySize(bytes))
+   {
+      ArrayResize(bytes, received);
+      received = zmqb_receive(socket, bytes, ArraySize(bytes), flags);
+   }
+
+   ZMQ_LAST_RECEIVE_SIZE = received;
+   if(received < 0)
+   {
+      if((flags & ZMQ_DONTWAIT) == 0)
+         z_error();
+      return "";
+   }
+   if(received == 0)
+      return "";
+   return CharArrayToString(bytes, 0, received, ZMQ_UTF8_CODEPAGE);
+}
+
+int z_last_receive_size()
+{
+   return ZMQ_LAST_RECEIVE_SIZE;
+}
+
+int z_set_option_int(ZMQ_HANDLE socket, int option, int value)
+{
+   int result = zmqb_set_option_int(socket, option, value);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+int z_set_option_bytes(ZMQ_HANDLE socket, int option, string value)
+{
+   uchar bytes[];
+   int with_terminator = StringToCharArray(value, bytes, 0, -1, ZMQ_UTF8_CODEPAGE);
+   int length = with_terminator > 0 ? with_terminator - 1 : 0;
+   int result = zmqb_set_option_bytes(socket, option, bytes, length);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+// Legacy string option helper. Integer options should migrate to
+// z_set_option_int; subscriptions and identities remain byte options.
+int z_set_sockopt(ZMQ_HANDLE socket, int option, string value)
+{
+   return z_set_option_bytes(socket, option, value);
+}
+
+int z_set_hwm(ZMQ_HANDLE socket, int value)
+{
+   return z_set_option_int(socket, ZMQ_HWM, value);
+}
+
+int z_subscribe(ZMQ_HANDLE socket, string topic)
+{
+   return z_set_option_bytes(socket, ZMQ_SUBSCRIBE, topic);
+}
+
+int z_unsubscribe(ZMQ_HANDLE socket, string topic)
+{
+   return z_set_option_bytes(socket, ZMQ_UNSUBSCRIBE, topic);
+}
+
+int z_more(ZMQ_HANDLE socket)
+{
+   int value[];
+   ArrayResize(value, 1);
+   if(zmqb_get_option_int(socket, ZMQ_RCVMORE, value) < 0)
+   {
+      z_error();
+      return -1;
+   }
+   return value[0];
+}
+
+int z_close(ZMQ_HANDLE socket)
+{
+   if(socket == 0)
+      return 0;
+   int result = zmqb_socket_close(socket);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+int z_term(ZMQ_HANDLE context)
+{
+   if(context == 0)
+      return 0;
+   int result = zmqb_context_destroy(context);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+#endif
