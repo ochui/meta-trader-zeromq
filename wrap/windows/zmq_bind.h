@@ -1,9 +1,14 @@
 #pragma once
 
-#include <cstdint>
+#include <stdint.h>
 
-using zmq_handle_t = intptr_t;
+typedef intptr_t zmq_handle_t;
+
+#ifdef __cplusplus
 #define ZMQ_BIND_NOEXCEPT noexcept
+#else
+#define ZMQ_BIND_NOEXCEPT
+#endif
 
 #if defined(_WIN32)
 #define ZMQ_BIND_CALL __stdcall
@@ -33,24 +38,24 @@ ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_connect(zmq_handle_t socket,
                                            const char *endpoint) ZMQ_BIND_NOEXCEPT;
 
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_send(zmq_handle_t socket,
-                            const unsigned char *data,
-                            int length,
-                            int flags) ZMQ_BIND_NOEXCEPT;
-ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_send_int_array(zmq_handle_t socket,
-                                      const int *data,
-                                      int count,
-                                      int flags) ZMQ_BIND_NOEXCEPT;
-ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_send_double_array(zmq_handle_t socket,
-                                         const double *data,
-                                         int count,
+                                         const unsigned char *data,
+                                         int length,
                                          int flags) ZMQ_BIND_NOEXCEPT;
+ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_send_int_array(zmq_handle_t socket,
+                                                   const int *data,
+                                                   int count,
+                                                   int flags) ZMQ_BIND_NOEXCEPT;
+ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_send_double_array(zmq_handle_t socket,
+                                                      const double *data,
+                                                      int count,
+                                                      int flags) ZMQ_BIND_NOEXCEPT;
 
 // If capacity is too small, the message is retained by the wrapper and its
 // required size is returned. Call again with a large enough buffer to copy it.
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_receive(zmq_handle_t socket,
-                               unsigned char *buffer,
-                               int capacity,
-                               int flags) ZMQ_BIND_NOEXCEPT;
+                                            unsigned char *buffer,
+                                            int capacity,
+                                            int flags) ZMQ_BIND_NOEXCEPT;
 
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_set_option_int(zmq_handle_t socket,
                                                    int option,
@@ -59,9 +64,9 @@ ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_set_option_int64(zmq_handle_t socket,
                                                      int option,
                                                      int64_t value) ZMQ_BIND_NOEXCEPT;
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_set_option_bytes(zmq_handle_t socket,
-                                        int option,
-                                        const unsigned char *value,
-                                        int length) ZMQ_BIND_NOEXCEPT;
+                                                     int option,
+                                                     const unsigned char *value,
+                                                     int length) ZMQ_BIND_NOEXCEPT;
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_get_option_int(zmq_handle_t socket,
                                                    int option,
                                                    int *value) ZMQ_BIND_NOEXCEPT;
@@ -75,8 +80,8 @@ ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_poll(zmq_handle_t socket,
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_errno(void) ZMQ_BIND_NOEXCEPT;
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_is_would_block(int error_code) ZMQ_BIND_NOEXCEPT;
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_error_text(int error_code,
-                                  unsigned char *buffer,
-                                  int capacity) ZMQ_BIND_NOEXCEPT;
+                                               unsigned char *buffer,
+                                               int capacity) ZMQ_BIND_NOEXCEPT;
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_version_major(void) ZMQ_BIND_NOEXCEPT;
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_version_minor(void) ZMQ_BIND_NOEXCEPT;
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_version_patch(void) ZMQ_BIND_NOEXCEPT;
