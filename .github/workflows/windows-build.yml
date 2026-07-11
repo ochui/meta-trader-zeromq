@@ -34,6 +34,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Configure
         shell: pwsh
@@ -113,6 +115,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Download MT4 Win32 artifact
         uses: actions/download-artifact@v8
@@ -146,6 +150,8 @@ jobs:
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Download MT4 Win32 artifact
         uses: actions/download-artifact@v8
@@ -161,9 +167,11 @@ jobs:
 
       - name: Validate version and create release assets
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           ./scripts/package_release.ps1 `
-            -Tag '${{ github.ref_name }}' `
+            -Tag $env:RELEASE_TAG `
             -Mt4PackageDirectory 'ci-artifacts/mt4-win32/package' `
             -Mt5PackageDirectory 'ci-artifacts/mt5-x64/package' `
             -OutputDirectory 'release'
