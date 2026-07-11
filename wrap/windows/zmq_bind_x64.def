@@ -11,10 +11,13 @@ EXPORTS
     zmqb_send_double_array
     zmqb_receive
     zmqb_set_option_int
+    zmqb_set_option_int64
     zmqb_set_option_bytes
     zmqb_get_option_int
+    zmqb_get_option_int64
     zmqb_poll
     zmqb_errno
+    zmqb_is_would_block
     zmqb_error_text
     zmqb_version_major
     zmqb_version_minor

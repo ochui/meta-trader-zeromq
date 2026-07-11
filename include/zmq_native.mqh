@@ -19,10 +19,13 @@ int zmqb_send_int_array(ZMQ_HANDLE socket, int &data[], int count, int flags);
 int zmqb_send_double_array(ZMQ_HANDLE socket, double &data[], int count, int flags);
 int zmqb_receive(ZMQ_HANDLE socket, uchar &buffer[], int capacity, int flags);
 int zmqb_set_option_int(ZMQ_HANDLE socket, int option, int value);
+int zmqb_set_option_int64(ZMQ_HANDLE socket, int option, long value);
 int zmqb_set_option_bytes(ZMQ_HANDLE socket, int option, uchar &value[], int length);
 int zmqb_get_option_int(ZMQ_HANDLE socket, int option, int &value[]);
+int zmqb_get_option_int64(ZMQ_HANDLE socket, int option, long &value[]);
 int zmqb_poll(ZMQ_HANDLE socket, int events, int timeout_ms);
 int zmqb_errno();
+int zmqb_is_would_block(int error_code);
 int zmqb_error_text(int error_code, uchar &buffer[], int capacity);
 int zmqb_version_major();
 int zmqb_version_minor();
@@ -57,7 +60,6 @@ int zmqb_version_patch();
 #define ZMQ_SNDBUF             11
 #define ZMQ_RCVBUF             12
 #define ZMQ_RCVMORE            13
-#define ZMQ_FD                 14
 #define ZMQ_EVENTS             15
 #define ZMQ_TYPE               16
 #define ZMQ_LINGER             17

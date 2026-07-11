@@ -49,14 +49,21 @@ ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_receive(zmq_handle_t socket,
                                int flags);
 
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_set_option_int(zmq_handle_t socket, int option, int value);
+ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_set_option_int64(zmq_handle_t socket,
+                                                     int option,
+                                                     int64_t value);
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_set_option_bytes(zmq_handle_t socket,
                                         int option,
                                         const unsigned char *value,
                                         int length);
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_get_option_int(zmq_handle_t socket, int option, int *value);
+ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_get_option_int64(zmq_handle_t socket,
+                                                     int option,
+                                                     int64_t *value);
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_poll(zmq_handle_t socket, int events, int timeout_ms);
 
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_errno(void);
+ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_is_would_block(int error_code);
 ZMQ_BIND_API int ZMQ_BIND_CALL zmqb_error_text(int error_code,
                                   unsigned char *buffer,
                                   int capacity);

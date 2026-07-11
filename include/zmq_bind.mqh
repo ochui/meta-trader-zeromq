@@ -28,6 +28,11 @@ int z_error()
    return error_code;
 }
 
+bool z_is_would_block_error(int error_code)
+{
+   return zmqb_is_would_block(error_code) != 0;
+}
+
 string z_version_string()
 {
    return IntegerToString(zmqb_version_major()) + "." +
@@ -145,7 +150,8 @@ string z_recv(ZMQ_HANDLE socket, int flags = 0)
    ZMQ_LAST_RECEIVE_SIZE = received;
    if(received < 0)
    {
-      if((flags & ZMQ_DONTWAIT) == 0)
+      int error_code = zmqb_errno();
+      if(!z_is_would_block_error(error_code))
          z_error();
       return "";
    }
@@ -162,6 +168,32 @@ int z_last_receive_size()
 int z_set_option_int(ZMQ_HANDLE socket, int option, int value)
 {
    int result = zmqb_set_option_int(socket, option, value);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+int z_get_option_int(ZMQ_HANDLE socket, int option, int &value[])
+{
+   ArrayResize(value, 1);
+   int result = zmqb_get_option_int(socket, option, value);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+int z_set_option_long(ZMQ_HANDLE socket, int option, long value)
+{
+   int result = zmqb_set_option_int64(socket, option, value);
+   if(result < 0)
+      z_error();
+   return result;
+}
+
+int z_get_option_long(ZMQ_HANDLE socket, int option, long &value[])
+{
+   ArrayResize(value, 1);
+   int result = zmqb_get_option_int64(socket, option, value);
    if(result < 0)
       z_error();
    return result;

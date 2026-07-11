@@ -24,6 +24,25 @@ zero linger so removing an EA or shutting down a terminal cannot wait forever
 for an unreachable peer. Destroying a context also closes sockets the EA forgot
 to close.
 
+## Concurrency and lifecycle
+
+The handle registry stores shared ownership of context and socket state. Its
+mutex is held only while looking up, adding, removing, or updating ownership of
+handles; it is never held during ZeroMQ I/O, polling, bind/connect, close, or
+context shutdown.
+
+Each socket has its own mutex because a native ZeroMQ socket must not be used by
+multiple threads simultaneously. Operations on different sockets, including
+sockets in the same context, can proceed concurrently. Removing a handle marks
+its state as closing, while `shared_ptr` ownership keeps that state alive until
+an already-started operation finishes. Repeated close and stale handles fail
+safely.
+
+Context destruction unregisters the context and its remaining sockets first,
+then calls `zmq_ctx_shutdown` outside the registry lock. This interrupts
+blocking operations before context cleanup waits for each socket mutex, applies
+zero linger, closes the sockets, and terminates the context.
+
 ## Requirements
 
 - Windows 10 or newer
@@ -135,24 +154,61 @@ z_term(context);
 
 Subscribers use `ZMQ_SUB`, `z_subscribe`, `z_connect`, and `z_recv`. For a
 non-blocking event loop, call `z_poll_socket(socket, 0)` and then
-`z_recv(socket, ZMQ_DONTWAIT)`. `z_last_receive_size()` distinguishes an empty
-message (`0`) from no non-blocking message (`-1`). Receive buffers grow and retry
-inside the high-level wrapper, so messages are not truncated.
+`z_recv(socket, ZMQ_DONTWAIT)`.
+
+Receive results are distinguishable:
+
+- No non-blocking message returns `""`, sets `z_last_receive_size()` to `-1`,
+  and does not log the expected would-block result.
+- A real receive failure returns `""`, sets the size to `-1`, and logs the
+  ZeroMQ error.
+- An empty ZeroMQ message returns `""` and sets the size to `0` without logging
+  an error.
+
+Use `z_is_would_block_error(error_code)` when handling lower-level calls. The
+native DLL performs the platform-correct comparison; MQL does not hardcode an
+error number.
+
+Receive buffers grow and retry inside the high-level wrapper, so messages are
+not truncated. If the first buffer is too small, the native wrapper retains the
+message until the retry. While a message is retained, `z_poll_socket` immediately
+reports `ZMQ_POLLIN`; after the message is copied, polling returns to the native
+socket state.
 
 The common helpers are:
 
 ```text
 z_init, z_socket, z_bind, z_connect, z_send, z_recv,
 z_subscribe, z_unsubscribe, z_close, z_term,
-z_set_option_int, z_set_option_bytes, z_poll_socket
+z_set_option_int, z_set_option_long, z_set_option_bytes,
+z_get_option_int, z_get_option_long, z_poll_socket
 ```
+
+### Socket option types
+
+The option helpers enforce the value width expected by libzmq 4.3.5:
+
+| MQL helper | Value width | Supported public options |
+| --- | --- | --- |
+| `z_set_option_int`, `z_get_option_int` | 32-bit `int` | `ZMQ_RATE`, `ZMQ_RECOVERY_IVL`, `ZMQ_SNDBUF`, `ZMQ_RCVBUF`, `ZMQ_RCVMORE` (get only), `ZMQ_EVENTS` (get only), `ZMQ_TYPE` (get only), `ZMQ_LINGER`, `ZMQ_RECONNECT_IVL`, `ZMQ_BACKLOG`, `ZMQ_RECONNECT_IVL_MAX`, `ZMQ_SNDHWM`, `ZMQ_RCVHWM`, `ZMQ_RCVTIMEO`, `ZMQ_SNDTIMEO`, `ZMQ_IMMEDIATE` |
+| `z_set_option_long`, `z_get_option_long` | 64-bit `long` | `ZMQ_AFFINITY`, `ZMQ_MAXMSGSIZE` |
+| `z_set_option_bytes` | UTF-8 bytes | `ZMQ_ROUTING_ID` / `ZMQ_IDENTITY`, `ZMQ_SUBSCRIBE`, `ZMQ_UNSUBSCRIBE` |
+
+Passing a 64-bit option through the 32-bit functions, or a 32-bit option through
+the 64-bit functions, fails instead of silently truncating or using the wrong
+ABI width. `ZMQ_FD` is intentionally not exposed because its native width is not
+portable between Win32 and x64. Legacy `z_set_hwm` remains set-only and applies
+its 32-bit value to both `ZMQ_SNDHWM` and `ZMQ_RCVHWM`.
 
 ## Tests
 
 `tests/native_smoke.cpp` runs for both architectures through CTest. It covers
 the native ABI, exact libzmq version, pointer-sized handles, PUB/SUB, PUSH/PULL,
 non-blocking receive, empty and long messages, UTF-8, `|` and `=`, message bursts,
-and repeated cleanup including a deliberately unclosed socket.
+retained-message polling, typed 64-bit options, independent sockets and contexts,
+close/shutdown races, stale handles, and repeated cleanup including a
+deliberately unclosed socket. Every blocking regression uses a bounded timeout,
+and CTest enforces a 30-second limit for the suite.
 
 The build also produces `zmq_cross_arch_peer` in each build's `Release`
 directory. It verifies Win32↔x64 PUB/SUB wire
@@ -178,7 +234,20 @@ poller pointer.
 `ZMQ_HWM` is no longer a native 4.x option. Calling `z_set_hwm` or setting
 `ZMQ_HWM` through `z_set_option_int` applies the value to both `ZMQ_SNDHWM` and
 `ZMQ_RCVHWM`. Use `z_set_option_int` for options such as `ZMQ_LINGER` and
-`ZMQ_RCVTIMEO`, and `z_set_option_bytes` for subscriptions or routing IDs.
+`ZMQ_RCVTIMEO`, `z_set_option_long` for `ZMQ_AFFINITY` or `ZMQ_MAXMSGSIZE`, and
+`z_set_option_bytes` for subscriptions or routing IDs.
+
+## Limitations
+
+- Operations on one socket are intentionally serialized. Explicit socket close
+  waits for an in-flight operation on that same socket; use `ZMQ_DONTWAIT`,
+  `ZMQ_RCVTIMEO`, `ZMQ_SNDTIMEO`, or bounded polling when another thread may
+  close it. Destroying the owning context can interrupt a blocking operation.
+- The public byte-option helper sets byte values but does not currently retrieve
+  byte-valued options.
+- Actual EA removal and terminal shutdown behavior must still be validated in
+  the target MT4 and MT5 terminal builds; native CTest cannot automate terminal
+  UI lifecycle events.
 
 ## Troubleshooting
 

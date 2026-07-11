@@ -107,6 +107,7 @@ if(BUILD_TESTING)
         COMMENT "Copying libzmq next to native smoke test"
     )
     add_test(NAME zmq_bind_native_smoke COMMAND zmq_bind_tests)
+    set_tests_properties(zmq_bind_native_smoke PROPERTIES TIMEOUT 30)
 
     add_executable(zmq_cross_arch_peer tests/cross_arch_peer.cpp)
     target_compile_features(zmq_cross_arch_peer PRIVATE cxx_std_17)

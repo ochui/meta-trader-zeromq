@@ -11,10 +11,13 @@ EXPORTS
     zmqb_send_double_array=_zmqb_send_double_array@16
     zmqb_receive=_zmqb_receive@16
     zmqb_set_option_int=_zmqb_set_option_int@12
+    zmqb_set_option_int64=_zmqb_set_option_int64@16
     zmqb_set_option_bytes=_zmqb_set_option_bytes@16
     zmqb_get_option_int=_zmqb_get_option_int@12
+    zmqb_get_option_int64=_zmqb_get_option_int64@12
     zmqb_poll=_zmqb_poll@12
     zmqb_errno=_zmqb_errno@0
+    zmqb_is_would_block=_zmqb_is_would_block@4
     zmqb_error_text=_zmqb_error_text@12
     zmqb_version_major=_zmqb_version_major@0
     zmqb_version_minor=_zmqb_version_minor@0
